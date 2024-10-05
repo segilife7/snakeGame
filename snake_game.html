@@ -1,0 +1,511 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <title>스네이크 게임 - 생명 추가 버전</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+        /* 전체 페이지 스타일 */
+        html, body {
+            margin: 0;
+            padding: 0;
+            height: 100%;
+            background-color: #f0f0f0;
+            font-family: Arial, sans-serif;
+        }
+        body {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        /* 게임 정보 컨테이너 */
+        #gameInfo {
+            width: 100%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            background-color: #f0f0f0;
+            font-size: 20px;
+            font-weight: bold;
+            margin-top: 10px;
+        }
+        #gameInfo > div {
+            margin: 0 20px;
+        }
+        /* 게임 캔버스 스타일 */
+        #gameCanvas {
+            background-color: #000;
+            display: block;
+            border: 2px solid #fff;
+            max-width: 90vw;
+            max-height: 70vh;
+            width: 600px;
+            height: 400px;
+        }
+        /* 게임 종료 메시지 스타일 */
+        #message {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: #ff0000;
+            font-size: 24px;
+            display: none;
+            text-align: center;
+            z-index: 2;
+        }
+        /* 게임 시작 버튼 스타일 */
+        #startButton {
+            margin-top: 20px;
+            padding: 10px 20px;
+            font-size: 20px;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+        #startButton:hover {
+            background-color: #45a049;
+        }
+        /* 가상 방향 버튼 컨테이너 */
+        #controls {
+            margin-top: 20px;
+            display: none;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+        }
+        /* 방향 버튼 그룹 */
+        .direction-row {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+        /* 가상 방향 버튼 스타일 */
+        .controlButton {
+            width: 60px;
+            height: 60px;
+            margin: 10px;
+            font-size: 24px;
+            background-color: #2196F3;
+            color: white;
+            border: none;
+            border-radius: 10px;
+            cursor: pointer;
+        }
+        .controlButton:hover {
+            background-color: #0b7dda;
+        }
+        /* 레이아웃 조정 */
+        @media (max-width: 600px) {
+            #gameCanvas {
+                width: 90vw;
+                height: 60vw;
+            }
+            .controlButton {
+                width: 50px;
+                height: 50px;
+                font-size: 20px;
+                margin: 5px;
+            }
+            #gameInfo {
+                font-size: 18px;
+            }
+            #message {
+                font-size: 20px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div id="gameInfo">
+        <div id="score">점수: 0</div>
+        <div id="level">레벨: 1</div>
+        <div id="lives">생명: 3</div>
+    </div>
+    <canvas id="gameCanvas" width="600" height="400"></canvas>
+    <div id="message">게임 종료! <br> 다시 시작하려면 R 키 또는 시작 버튼을 누르세요.</div>
+    <button id="startButton">게임 시작</button>
+    <div id="controls">
+        <div class="direction-row">
+            <button class="controlButton" id="upButton">↑</button>
+        </div>
+        <div class="direction-row">
+            <button class="controlButton" id="leftButton">←</button>
+            <button class="controlButton" id="downButton">↓</button>
+            <button class="controlButton" id="rightButton">→</button>
+        </div>
+    </div>
+
+    <script>
+        // 게임 요소 참조
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const scoreElement = document.getElementById('score');
+        const levelElement = document.getElementById('level');
+        const livesElement = document.getElementById('lives');
+        const messageElement = document.getElementById('message');
+        const startButton = document.getElementById('startButton');
+        const controls = document.getElementById('controls');
+        const upButton = document.getElementById('upButton');
+        const downButton = document.getElementById('downButton');
+        const leftButton = document.getElementById('leftButton');
+        const rightButton = document.getElementById('rightButton');
+
+        // 게임 설정
+        const box = 20; // 각 블록의 크기
+        const canvasWidth = canvas.width;
+        const canvasHeight = canvas.height;
+
+        // 게임 변수 초기화
+        let snake;
+        let direction;
+        let obstacles;
+        let food;
+        let extraLifeItem;
+        let score;
+        let level;
+        let lives;
+        let gameOver;
+        let game; // 게임 인터벌
+        let extraLifeAppearances; // 추가 생명 아이템 등장 횟수
+        let isInvincible = false; // 무적 상태 여부
+
+        // 오디오 설정
+        let audioContext;
+
+        function playSound() {
+            if (!audioContext) {
+                audioContext = new (window.AudioContext || window.webkitAudioContext)();
+            }
+            const oscillator = audioContext.createOscillator();
+            const gainNode = audioContext.createGain();
+
+            oscillator.connect(gainNode);
+            gainNode.connect(audioContext.destination);
+
+            oscillator.type = 'square';
+            oscillator.frequency.setValueAtTime(440, audioContext.currentTime); // A4 음
+            oscillator.start();
+            oscillator.stop(audioContext.currentTime + 0.1); // 0.1초 동안 재생
+        }
+
+        // 키보드 이벤트 리스너 (WASD 키 및 재시작 'R' 키)
+        document.addEventListener('keydown', function(event) {
+            const key = event.key.toLowerCase();
+            if ((key === 'a' || key === 'arrowleft') && direction !== 'RIGHT') {
+                direction = 'LEFT';
+            } else if ((key === 'w' || key === 'arrowup') && direction !== 'DOWN') {
+                direction = 'UP';
+            } else if ((key === 'd' || key === 'arrowright') && direction !== 'LEFT') {
+                direction = 'RIGHT';
+            } else if ((key === 's' || key === 'arrowdown') && direction !== 'UP') {
+                direction = 'DOWN';
+            } else if (gameOver && key === 'r') {
+                resetGame();
+            }
+        });
+
+        // 가상 방향 버튼 클릭 이벤트 리스너
+        upButton.addEventListener('click', function() {
+            if (direction !== 'DOWN') {
+                direction = 'UP';
+            }
+        });
+        downButton.addEventListener('click', function() {
+            if (direction !== 'UP') {
+                direction = 'DOWN';
+            }
+        });
+        leftButton.addEventListener('click', function() {
+            if (direction !== 'RIGHT') {
+                direction = 'LEFT';
+            }
+        });
+        rightButton.addEventListener('click', function() {
+            if (direction !== 'LEFT') {
+                direction = 'RIGHT';
+            }
+        });
+
+        // 게임 시작 버튼 클릭 이벤트 리스너
+        startButton.addEventListener('click', function() {
+            startButton.style.display = 'none';
+            controls.style.display = 'flex';
+            resetGame();
+        });
+
+        // 음식 생성 함수
+        function generateFood() {
+            let newFood;
+            let collision;
+            do {
+                collision = false;
+                newFood = {
+                    x: Math.floor(Math.random() * (canvasWidth / box)) * box,
+                    y: Math.floor(Math.random() * (canvasHeight / box)) * box
+                };
+                // 뱀과 장애물과 겹치는지 확인
+                for (let segment of snake) {
+                    if (segment.x === newFood.x && segment.y === newFood.y) {
+                        collision = true;
+                        break;
+                    }
+                }
+                for (let obstacle of obstacles) {
+                    if (obstacle.x === newFood.x && obstacle.y === newFood.y) {
+                        collision = true;
+                        break;
+                    }
+                }
+            } while (collision);
+            return newFood;
+        }
+
+        // 추가 생명 아이템 생성 함수
+        function generateExtraLifeItem() {
+            let newItem;
+            let collision;
+            do {
+                collision = false;
+                newItem = {
+                    x: Math.floor(Math.random() * (canvasWidth / box)) * box,
+                    y: Math.floor(Math.random() * (canvasHeight / box)) * box
+                };
+                // 뱀, 음식, 장애물과 겹치는지 확인
+                for (let segment of snake) {
+                    if (segment.x === newItem.x && segment.y === newItem.y) {
+                        collision = true;
+                        break;
+                    }
+                }
+                if (food && newItem.x === food.x && newItem.y === food.y) {
+                    collision = true;
+                }
+                for (let obstacle of obstacles) {
+                    if (obstacle.x === newItem.x && obstacle.y === newItem.y) {
+                        collision = true;
+                        break;
+                    }
+                }
+            } while (collision);
+            return newItem;
+        }
+
+        // 장애물 생성 함수
+        function generateObstacles() {
+            const obstacleCount = 5; // 장애물 개수
+            let newObstacles = [];
+            let collision;
+            for (let i = 0; i < obstacleCount; i++) {
+                let obstacle;
+                do {
+                    collision = false;
+                    obstacle = {
+                        x: Math.floor(Math.random() * (canvasWidth / box)) * box,
+                        y: Math.floor(Math.random() * (canvasHeight / box)) * box
+                    };
+                    // 뱀의 현재 위치와 겹치지 않도록 확인
+                    for (let segment of snake) {
+                        if (segment.x === obstacle.x && segment.y === obstacle.y) {
+                            collision = true;
+                            break;
+                        }
+                    }
+                    // 기존 장애물과 겹치지 않도록 확인
+                    for (let existing of newObstacles) {
+                        if (existing.x === obstacle.x && existing.y === obstacle.y) {
+                            collision = true;
+                            break;
+                        }
+                    }
+                } while (collision);
+                newObstacles.push(obstacle);
+            }
+            obstacles = newObstacles;
+        }
+
+        // 게임 초기화 함수
+        function resetGame() {
+            snake = [{ x: 9 * box, y: 9 * box }];
+            direction = 'RIGHT';
+            obstacles = [];
+            food = generateFood();
+            extraLifeItem = null;
+            score = 0;
+            level = 1;
+            lives = 3;
+            extraLifeAppearances = 0;
+            gameOver = false;
+            isInvincible = false;
+            scoreElement.innerText = '점수: ' + score;
+            levelElement.innerText = '레벨: ' + level;
+            livesElement.innerText = '생명: ' + lives;
+            messageElement.style.display = 'none';
+            clearInterval(game);
+            game = setInterval(draw, getSpeed());
+        }
+
+        // 현재 레벨에 맞는 속도 반환 함수
+        function getSpeed() {
+            const maxSpeed = 50;
+            const minSpeed = 150;
+            const speedDecrease = 100;
+            let speed = minSpeed - ((level - 1) * (speedDecrease / 9));
+            return Math.max(speed, maxSpeed);
+        }
+
+        // 게임 그리기 함수
+        function draw() {
+            // 배경 그리기
+            ctx.fillStyle = '#000';
+            ctx.fillRect(0, 0, canvasWidth, canvasHeight);
+
+            // 장애물 그리기
+            if (level >= 3) {
+                ctx.fillStyle = '#808080';
+                for (let obstacle of obstacles) {
+                    ctx.fillRect(obstacle.x, obstacle.y, box, box);
+                }
+            }
+
+            // 뱀 그리기
+            for (let i = 0; i < snake.length; i++) {
+                ctx.fillStyle = i === 0 ? '#00FF00' : '#FFFFFF';
+                // 무적 상태에서 뱀을 깜빡이게 함
+                if (isInvincible && i === 0 && Math.floor(Date.now() / 100) % 2 === 0) {
+                    ctx.fillStyle = '#FFD700'; // 금색
+                }
+                ctx.fillRect(snake[i].x, snake[i].y, box, box);
+                ctx.strokeStyle = '#000';
+                ctx.strokeRect(snake[i].x, snake[i].y, box, box);
+            }
+
+            // 음식 그리기
+            ctx.fillStyle = '#FF0000';
+            ctx.fillRect(food.x, food.y, box, box);
+
+            // 추가 생명 아이템 그리기
+            if (extraLifeItem) {
+                ctx.fillStyle = '#FFFF00'; // 노란색 아이템
+                // 하트 모양 그리기 (간단한 하트 형태)
+                ctx.beginPath();
+                let x = extraLifeItem.x + box / 2;
+                let y = extraLifeItem.y + box / 2;
+                ctx.moveTo(x, y + box / 4);
+                ctx.arc(x - box / 4, y - box / 4, box / 4, 0, Math.PI, true);
+                ctx.arc(x + box / 4, y - box / 4, box / 4, 0, Math.PI, true);
+                ctx.lineTo(x, y + box / 4);
+                ctx.closePath();
+                ctx.fill();
+            }
+
+            // 머리 위치 계산
+            let headX = snake[0].x;
+            let headY = snake[0].y;
+
+            // 방향에 따른 머리 위치 업데이트
+            if (direction === 'LEFT') headX -= box;
+            if (direction === 'UP') headY -= box;
+            if (direction === 'RIGHT') headX += box;
+            if (direction === 'DOWN') headY += box;
+
+            // 경계 체크
+            if (!isInvincible && (headX < 0 || headX >= canvasWidth || headY < 0 || headY >= canvasHeight)) {
+                loseLife();
+                return;
+            }
+
+            // 자기 자신과의 충돌 체크
+            if (!isInvincible) {
+                for (let i = 1; i < snake.length; i++) {
+                    if (snake[i].x === headX && snake[i].y === headY) {
+                        loseLife();
+                        return;
+                    }
+                }
+            }
+
+            // 장애물과의 충돌 체크
+            if (!isInvincible && level >= 3) {
+                for (let obstacle of obstacles) {
+                    if (obstacle.x === headX && obstacle.y === headY) {
+                        loseLife();
+                        return;
+                    }
+                }
+            }
+
+            // 음식 먹기
+            if (headX === food.x && headY === food.y) {
+                playSound();
+                score++;
+                scoreElement.innerText = '점수: ' + score;
+
+                // 레벨 업 조건
+                let newLevel = Math.min(Math.floor(score / 5) + 1, 10);
+                if (newLevel !== level) {
+                    level = newLevel;
+                    levelElement.innerText = '레벨: ' + level;
+
+                    // 레벨 3부터 장애물 생성
+                    if (level === 3) {
+                        generateObstacles();
+                    }
+
+                    // 속도 조절
+                    clearInterval(game);
+                    game = setInterval(draw, getSpeed());
+                }
+
+                food = generateFood();
+
+                // 레벨 3 이상에서 추가 생명 아이템 등장
+                if (level >= 3 && extraLifeAppearances < 2 && !extraLifeItem) {
+                    extraLifeItem = generateExtraLifeItem();
+                    extraLifeAppearances++;
+                }
+            } else {
+                snake.pop();
+            }
+
+            // 추가 생명 아이템 먹기
+            if (extraLifeItem && headX === extraLifeItem.x && headY === extraLifeItem.y) {
+                playSound();
+                lives++;
+                livesElement.innerText = '생명: ' + lives;
+                extraLifeItem = null;
+            }
+
+            // 새 머리 추가
+            const newHead = { x: headX, y: headY };
+            snake.unshift(newHead);
+        }
+
+        // 생명 잃기 함수
+        function loseLife() {
+            lives--;
+            livesElement.innerText = '생명: ' + lives;
+            if (lives <= 0) {
+                gameOver = true;
+                clearInterval(game);
+                messageElement.style.display = 'block';
+                startButton.style.display = 'block';
+                controls.style.display = 'none';
+            } else {
+                isInvincible = true;
+                setTimeout(() => {
+                    isInvincible = false;
+                }, 2000); // 2초간 무적 상태
+            }
+        }
+
+        // 페이지 로드 시 시작 버튼 보이기
+        window.onload = function() {
+            startButton.style.display = 'block';
+            controls.style.display = 'none';
+        }
+    </script>
+</body>
+</html>
